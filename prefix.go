@@ -302,7 +302,7 @@ func (i *ipamer) acquireSpecificChildPrefixInternal(parentCidr, childCidr string
 
 	if ok := ipset.IPSet().ContainsPrefix(childPrefix); !ok{
 		//parent prefix does not contain specific child prefix, return error
-		return nil, fmt.Errorf("Specifix prefix %s is not available", childPrefix.String())
+		return nil, fmt.Errorf("Specific prefix %s is not available", childPrefix.String())
 	}
 
 	child := &Prefix{
