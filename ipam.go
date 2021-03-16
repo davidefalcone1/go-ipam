@@ -12,7 +12,7 @@ type Ipamer interface {
 	// AcquireChildPrefix will return a Prefix with a smaller length from the given Prefix.
 	AcquireChildPrefix(parentCidr string, length uint8) (*Prefix, error)
 	// AcquireSpecificChildPrefix will return a Prefix with a smaller length from the given Prefix.
-	AcquireSpecificChildPrefix(parentCidr string, length uint8) (*Prefix, error)
+	AcquireSpecificChildPrefix(parentCidr, childCidr string) (*Prefix, error)
 	// ReleaseChildPrefix will mark this child Prefix as available again.
 	ReleaseChildPrefix(child *Prefix) error
 	// PrefixFrom will return a known Prefix.
