@@ -187,6 +187,15 @@ func (i *ipamer) AcquireChildPrefix(parentCidr string, length uint8) (*Prefix, e
 	})
 }
 
+func (i *ipamer) AcquireSpecificChildPrefix(parentCidr, childCidr string) (*Prefix, error){
+	var prefix *Prefix
+	return prefix, retryOnOptimisticLock(func() error {
+		var err error
+		prefix, err = i.acquireSpecificChildPrefixInternal(parentCidr, childCidr)
+		return err
+	})
+}
+
 // acquireChildPrefixInternal will return a Prefix with a smaller length from the given Prefix.
 func (i *ipamer) acquireChildPrefixInternal(parentCidr string, length uint8) (*Prefix, error) {
 	parent := i.PrefixFrom(parentCidr)
@@ -238,6 +247,68 @@ func (i *ipamer) acquireChildPrefixInternal(parentCidr string, length uint8) (*P
 
 	child := &Prefix{
 		Cidr:       cp.String(),
+		ParentCidr: parentCidr,
+	}
+
+	parent.availableChildPrefixes[child.Cidr] = false
+	parent.isParent = true
+
+	_, err = i.storage.UpdatePrefix(*parent)
+	if err != nil {
+		return nil, fmt.Errorf("unable to update parent prefix:%v error:%w", parent, err)
+	}
+	child, err = i.newPrefix(child.Cidr, parentCidr)
+	if err != nil {
+		return nil, fmt.Errorf("unable to persist created child:%w", err)
+	}
+	_, err = i.storage.CreatePrefix(*child)
+	if err != nil {
+		return nil, fmt.Errorf("unable to update parent prefix:%v error:%w", child, err)
+	}
+
+	return child, nil
+}
+
+// acquireSpecificChildPrefixInternal will return a specific Prefix with a smaller length from the given Prefix.
+func (i *ipamer) acquireSpecificChildPrefixInternal(parentCidr, childCidr string) (*Prefix, error) {
+	parent := i.PrefixFrom(parentCidr)
+	if parent == nil {
+		return nil, fmt.Errorf("unable to find prefix for cidr:%s", parentCidr)
+	}
+	ipprefix, err := netaddr.ParseIPPrefix(parent.Cidr)
+	if err != nil {
+		return nil, err
+	}
+	childPrefix, err := netaddr.ParseIPPrefix(childCidr)
+	if ipprefix.Bits >= childPrefix.Bits {
+		return nil, fmt.Errorf("given length:%d must be greater than prefix length:%d", childPrefix.Bits, ipprefix.Bits)
+	}
+	if parent.hasIPs() {
+		return nil, fmt.Errorf("prefix %s has ips, acquire child prefix not possible", parent.Cidr)
+	}
+
+	var ipset netaddr.IPSetBuilder
+	ipset.AddPrefix(ipprefix)
+	for cp, available := range parent.availableChildPrefixes {
+		if available {
+			continue
+		}
+		cpipprefix, err := netaddr.ParseIPPrefix(cp)
+		if err != nil {
+			return nil, err
+		}
+		ipset.RemovePrefix(cpipprefix)
+	}
+
+	if ok := ipset.IPSet().ContainsPrefix(childPrefix); !ok{
+		//parent prefix does not contain specific child prefix, return error
+		return nil, ErrNotFound
+	}
+
+	ipset.RemovePrefix(childPrefix)
+
+	child := &Prefix{
+		Cidr:       childPrefix.String(),
 		ParentCidr: parentCidr,
 	}
 
